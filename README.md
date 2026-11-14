@@ -67,7 +67,7 @@ Dann im Chat fragen: „Was steht heute an?“
 ## Fehlersuche
 
 - Coolify → Ressource → *Logs*. Die Tools geben Fehler als `{"fehler": "..."}` zurück, Claude zeigt sie dir an.
-- `LoginError` / `AUTHENTICATIONFAILED` bei Mail: IMAP in GMX nicht erlaubt oder falsches (bzw. fehlendes anwendungsspezifisches) Passwort.
+- `LoginError` / `authentication failed` bei Mail: In Claude „Führe mail_diagnose aus“ sagen. Das Tool zeigt Format und Merkmale von Benutzer und Passwort (nicht die Werte selbst) und das Ergebnis je Anmeldeverfahren. Häufige Ursachen: GMX_USER ist nicht die volle Adresse, IMAP in GMX nicht erlaubt, bei Zwei-Faktor fehlt das anwendungsspezifische Passwort.
 - `401 Unauthorized` beim Kalender: Apple-ID oder App-spezifisches Passwort falsch.
 - `421 Invalid Host header`: `ALLOWED_HOSTS` passt nicht zur Domain.
 

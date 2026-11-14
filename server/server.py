@@ -29,9 +29,10 @@ from mcp.server.transport_security import TransportSecuritySettings
 # ---------------------------------------------------------------- Konfiguration
 TZ = ZoneInfo(os.environ.get("TZ_NAME", "Europe/Berlin"))
 
-GMX_USER = os.environ.get("GMX_USER", "")
-GMX_PASSWORD = os.environ.get("GMX_PASSWORD", "")
-GMX_IMAP_HOST = os.environ.get("GMX_IMAP_HOST", "imap.gmx.net")
+# strip(): Leerzeichen oder Zeilenumbrüche aus dem Coolify-Feld würden den Login scheitern lassen
+GMX_USER = os.environ.get("GMX_USER", "").strip()
+GMX_PASSWORD = os.environ.get("GMX_PASSWORD", "").strip()
+GMX_IMAP_HOST = os.environ.get("GMX_IMAP_HOST", "imap.gmx.net").strip()
 
 ICLOUD_USER = os.environ.get("ICLOUD_USER", "")              # Apple-ID (E-Mail)
 ICLOUD_APP_PASSWORD = os.environ.get("ICLOUD_APP_PASSWORD", "")  # App-spezifisches Passwort
@@ -62,7 +63,15 @@ def _safe(fn):
 # ---------------------------------------------------------------- Mail-Helfer
 def _imap() -> IMAPClient:
     client = IMAPClient(GMX_IMAP_HOST, ssl=True, timeout=30)
-    client.login(GMX_USER, GMX_PASSWORD)
+    try:
+        if GMX_PASSWORD.isascii():
+            client.login(GMX_USER, GMX_PASSWORD)
+        else:
+            raise ValueError("Nicht-ASCII-Passwort")
+    except Exception:
+        # Fallback: AUTHENTICATE PLAIN (UTF-8), klappt auch mit Umlauten im Passwort
+        client = IMAPClient(GMX_IMAP_HOST, ssl=True, timeout=30)
+        client.plain_login(GMX_USER, GMX_PASSWORD)
     return client
 
 
@@ -228,6 +237,44 @@ def mail_entwurf(an: str, betreff: str, text: str, cc: str = "", antwort_auf_mes
         drafts = c.find_special_folder(DRAFTS) or "Entwürfe"
         c.append(drafts, msg.as_bytes(), flags=[b"\\Draft"])
     return {"ok": True, "ordner": drafts, "betreff": betreff}
+
+
+@mcp.tool()
+def mail_diagnose() -> dict:
+    """Prüft die GMX-Anmeldung und zeigt, woran sie scheitert. Gibt keine Zugangsdaten aus,
+    nur Merkmale (Länge, Format, Sonderzeichen) und das Ergebnis je Anmeldeverfahren."""
+    raw_user = os.environ.get("GMX_USER", "")
+    raw_pw = os.environ.get("GMX_PASSWORD", "")
+    user_domain = GMX_USER.rsplit("@", 1)[1] if "@" in GMX_USER else ""
+    out: dict = {
+        "host": f"{GMX_IMAP_HOST}:993 (SSL)",
+        "user_gesetzt": bool(GMX_USER),
+        "user_ist_mailadresse": bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[a-z]+", GMX_USER, re.I)),
+        "user_domain": user_domain,
+        "user_hatte_leerzeichen_am_rand": raw_user != raw_user.strip(),
+        "passwort_gesetzt": bool(GMX_PASSWORD),
+        "passwort_laenge": len(GMX_PASSWORD),
+        "passwort_hatte_leerzeichen_am_rand": raw_pw != raw_pw.strip(),
+        "passwort_nur_ascii": GMX_PASSWORD.isascii(),
+        "passwort_hat_anfuehrungszeichen": any(ch in GMX_PASSWORD for ch in "\"'"),
+        "passwort_hat_dollar": "$" in GMX_PASSWORD,
+        "passwort_hat_backslash": "\\" in GMX_PASSWORD,
+    }
+    try:
+        c = IMAPClient(GMX_IMAP_HOST, ssl=True, timeout=20)
+        out["server_faehigkeiten"] = sorted(x.decode() for x in c.capabilities() if b"AUTH" in x or x == b"IMAP4REV1")
+    except Exception as e:
+        out["verbindung"] = f"{type(e).__name__}: {e}"[:300]
+        return out
+    for name, fn in (("LOGIN", "login"), ("AUTH PLAIN", "plain_login")):
+        try:
+            c = IMAPClient(GMX_IMAP_HOST, ssl=True, timeout=20)
+            getattr(c, fn)(GMX_USER, GMX_PASSWORD)
+            c.logout()
+            out[name] = "ok"
+        except Exception as e:
+            out[name] = f"{type(e).__name__}: {e}"[:300]
+    return out
 
 
 # ---------------------------------------------------------------- Kalender-Helfer
