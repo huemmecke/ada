@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block titel %}Protokoll{% endblock %}
+{% block inhalt %}
+<h1>Protokoll</h1>
+<nav class="reiter">
+  {% for k, l in [("","Alle"),("ada","Ada"),("martin","Martin"),("worker","Worker"),("system","System")] %}
+  <a href="/protokoll{% if k %}?wer={{ k }}{% endif %}"{% if wer == k %} aria-current="page"{% endif %}>{{ l }}</a>
+  {% endfor %}
+</nav>
+{% if not eintraege %}<p class="leer">Keine Einträge.</p>{% endif %}
+<ul class="verlauf">
+{% for e in eintraege %}
+  <li><span class="zeit">{{ e.zeit[5:16] }}</span><span><strong>{{ e.wer }}</strong> {{ e.aktion | replace('_', ' ') }} <span class="grau">{{ e.details | details }}</span></span></li>
+{% endfor %}
+</ul>
+{% endblock %}

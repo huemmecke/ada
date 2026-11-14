@@ -1,0 +1,10 @@
+{% if mails is mapping %}<p class="fehler">Postfach nicht erreichbar: {{ mails.fehler }}</p>
+{% elif not mails %}<p class="leer">Keine ungelesenen Mails.</p>
+{% else %}
+<ul class="mails">
+{% for m in mails %}
+  <li><span class="zeit">{{ m.datum[11:] if m.datum else '' }}</span>
+      <span><strong>{{ m.von.split('<')[0].strip() or m.von }}</strong><br>{{ m.betreff or '(ohne Betreff)' }}</span></li>
+{% endfor %}
+</ul>
+{% endif %}

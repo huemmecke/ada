@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titel %}{{ a.titel }}{% endblock %}
+{% block inhalt %}
+<p class="brotkrume"><a href="/aufgaben">Aufgaben</a>{% if a.projekt %} · <a href="/projekte/{{ a.projekt_id }}">{{ a.projekt }}</a>{% endif %}</p>
+<form method="post" action="/aufgaben/{{ a.id }}/aendern" class="formular">
+  <input type="hidden" name="zurueck" value="/aufgaben/{{ a.id }}">
+  <label>Titel <input type="text" name="titel" value="{{ a.titel }}" required></label>
+  <label>Beschreibung <textarea name="beschreibung" rows="5">{{ a.beschreibung }}</textarea></label>
+  <div class="zeile">
+    <label>Status
+      <select name="status">{% for k, l in spalten %}<option value="{{ k }}"{% if a.status == k %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    </label>
+    <label>Projekt
+      <select name="projekt_id">
+        <option value="">ohne Projekt</option>
+        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == a.projekt_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+  <div class="zeile">
+    <label>Zuständig <input type="text" name="zustaendig" list="zustaendige" value="{{ a.zustaendig }}"></label>
+    <label>Priorität
+      <select name="prioritaet">{% for v, l in [(1,'hoch'),(2,'normal'),(3,'niedrig')] %}<option value="{{ v }}"{% if a.prioritaet == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    </label>
+    <label>Fällig <input type="date" name="faellig" value="{{ (a.faellig or '')[:10] }}"></label>
+  </div>
+  <label>Ergebnis / Rückmeldung <textarea name="ergebnis" rows="4">{{ a.ergebnis }}</textarea></label>
+  <div class="knoepfe">
+    <button type="submit" class="primaer">Speichern</button>
+    {% if a.status != 'erledigt' %}<button type="submit" name="aktion" value="erledigt">Erledigt</button>{% endif %}
+    <button type="submit" name="aktion" value="loeschen" class="gefahr" formnovalidate data-bestaetigen="Aufgabe endgültig löschen?">Löschen</button>
+  </div>
+  <p class="grau klein">Angelegt {{ a.erstellt[:16] }} · geändert {{ a.aktualisiert[:16] }}</p>
+</form>
+{% if verlauf %}
+<section>
+  <h2>Verlauf</h2>
+  <ul class="verlauf">{% for e in verlauf %}<li><span class="zeit">{{ e.zeit[:16] }}</span><span><strong>{{ e.wer }}</strong> {{ e.aktion | replace('_', ' ') }} <span class="grau">{{ e.details | details }}</span></span></li>{% endfor %}</ul>
+</section>
+{% endif %}
+<datalist id="zustaendige">{% for z in zustaendige %}<option value="{{ z }}">{% endfor %}</datalist>
+{% endblock %}

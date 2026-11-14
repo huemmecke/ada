@@ -1,0 +1,21 @@
+{# Aufgabenkarte; erwartet a, optional mit_projekt #}
+<article class="karte prio-{{ a.prioritaet }}" draggable="true" data-id="{{ a.id }}">
+  <a class="karte-titel" href="/aufgaben/{{ a.id }}">{{ a.titel }}</a>
+  <div class="meta">
+    {% if a.projekt and mit_projekt is not false %}<span>{{ a.projekt }}</span>{% endif %}
+    {% if a.zustaendig != 'martin' %}<span class="marke-klein">{{ a.zustaendig }}</span>{% endif %}
+    {% if a.faellig %}<span class="{{ 'ueberfaellig' if heute and a.faellig[:10] < heute and a.status != 'erledigt' else '' }}">fällig {{ a.faellig }}</span>{% endif %}
+    {% if a.prioritaet == 1 %}<span class="hoch">hoch</span>{% endif %}
+  </div>
+  {% if a.ergebnis and a.status in ('wartet', 'erledigt') %}<p class="ergebnis">{{ a.ergebnis | truncate(160) }}</p>{% endif %}
+  <form method="post" action="/aufgaben/{{ a.id }}/aendern" class="karte-aktionen">
+    <input type="hidden" name="zurueck" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    <input type="hidden" name="nur_status" value="1">
+    <select name="status" class="status-wahl" aria-label="Status ändern">
+      {% for k, l in spalten %}<option value="{{ k }}"{% if a.status == k %} selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+    {% if a.status != 'erledigt' %}
+    <button type="submit" name="aktion" value="erledigt" class="haken" title="Erledigt">✓</button>
+    {% endif %}
+  </form>
+</article>

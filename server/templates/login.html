@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block titel %}Anmelden{% endblock %}
+{% block main_klasse %}login{% endblock %}
+{% block inhalt %}
+<form method="post" action="/login" class="login-karte">
+  <h1 class="marke-gross">Ada</h1>
+  <label for="pw" class="unsichtbar">Passwort</label>
+  <input id="pw" type="password" name="passwort" placeholder="Passwort" autocomplete="current-password" autofocus required>
+  {% if fehler %}<p class="fehler">{{ fehler }}</p>{% endif %}
+  <button type="submit" class="primaer">Anmelden</button>
+</form>
+{% endblock %}

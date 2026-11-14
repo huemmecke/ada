@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ada">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block titel %}Ada{% endblock %} · Ada</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon.png">
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+{% if aktiv %}
+<header class="kopf">
+  <a class="marke" href="/">Ada</a>
+  <nav class="nav">
+    {% for key, label in [("heute","Heute"),("eingang","Eingang"),("projekte","Projekte"),("aufgaben","Aufgaben"),("freigaben","Freigaben"),("protokoll","Protokoll")] %}
+    <a href="/{{ '' if key == 'heute' else key }}"{% if aktiv == key %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <form method="post" action="/logout" class="abmelden"><button class="leise" type="submit">Abmelden</button></form>
+</header>
+{% endif %}
+<main class="{% block main_klasse %}seite{% endblock %}">
+{% block inhalt %}{% endblock %}
+</main>
+</body>
+</html>

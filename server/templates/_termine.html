@@ -1,0 +1,15 @@
+{% if termine is mapping %}<p class="fehler">Kalender nicht erreichbar: {{ termine.fehler }}</p>
+{% elif not termine %}<p class="leer">Keine Termine.</p>
+{% else %}
+<ul class="termine">
+{% set ns = namespace(tag='') %}
+{% for t in termine %}
+  {% if t.fehler %}<li class="fehler">{{ t.kalender }}: {{ t.fehler }}</li>{% else %}
+  {% set tag = t.start[:10] %}
+  {% if tag != ns.tag %}{% set ns.tag = tag %}<li class="tag">{{ 'Heute' if tag == heute else 'Morgen' if tag == morgen else tag }}</li>{% endif %}
+  <li><span class="zeit">{{ 'ganztags' if t.ganztags else t.start[11:] }}</span>
+      <span>{{ t.titel }}{% if t.ort %} <span class="grau">· {{ t.ort }}</span>{% endif %}</span></li>
+  {% endif %}
+{% endfor %}
+</ul>
+{% endif %}

@@ -2,7 +2,30 @@
 
 Persönliche Assistentin für Martin: MCP-Server für Claude (Mail, Kalender; später Ideen, Aufgaben, Dashboard). Läuft auf Hetzner mit Coolify. Den ganzen Plan findest du in `AUFTRAG.md`.
 
-## Stand: Phase 2 – Datenbank und Ada-Werkzeuge
+## Stand: Phase 3 – Dashboard
+
+Das Dashboard läuft in derselben App unter `https://ada.<deine-domain>/`. Es ist getrennt vom MCP-Pfad geschützt: Login mit `DASHBOARD_PASSWORD`, danach ein signiertes Session-Cookie (httpOnly, secure, 30 Tage). Wenn du das Passwort änderst, sind alle Sitzungen abgemeldet. Nach 10 Fehlversuchen in 15 Minuten ist der Login kurz gesperrt.
+
+**Neue Umgebungsvariablen in Coolify:**
+- `DASHBOARD_PASSWORD` – dein Dashboard-Passwort
+- `SESSION_SECRET` – `openssl rand -hex 32`
+
+Fehlen sie, antwortet das Dashboard mit „nicht eingerichtet“. Der MCP-Server läuft trotzdem.
+
+| Ansicht | Inhalt |
+|---|---|
+| Heute | Termine heute/morgen, ungelesene Mails, wichtigste Aufgaben, Zähler, letztes Briefing, gestern Erledigtes |
+| Eingang | Ideen notieren, einem Projekt zuordnen, als Aufgabe anlegen, verwerfen; Verworfenes zurückholen oder löschen |
+| Projekte | Liste mit Zählern; Detailseite mit Aufgaben, Ideen, Entwürfen, Verlauf; bearbeiten, löschen |
+| Aufgaben | Kanban (offen / in Arbeit / delegiert / wartet / erledigt), Drag & Drop am Rechner, Status-Auswahl und Haken auf jeder Karte (auch am iPhone), Detailseite zum Bearbeiten und Löschen |
+| Freigaben | Entwürfe bearbeiten, freigeben, ablehnen. Freigeben veröffentlicht noch nichts (das kommt in Phase 5). |
+| Protokoll | Wer hat wann was gemacht, filterbar nach Ada / Martin / Worker / System |
+
+Am iPhone: Seite in Safari öffnen → Teilen → „Zum Home-Bildschirm“.
+
+**Test Phase 3:** Im Dashboard eine Aufgabe anlegen und in Claude fragen „Welche Aufgaben sind offen?“. Umgekehrt Ada eine Aufgabe anlegen lassen und im Dashboard nachsehen.
+
+## Phase 2 – Datenbank und Ada-Werkzeuge
 
 Neu: SQLite unter `/data/ada.db` (Volume `ada-data`, bleibt bei Redeploys erhalten). Beim ersten Start werden die Tabellen angelegt und die 11 Startprojekte eingetragen. Jede Änderung landet in der Tabelle `protokoll`.
 

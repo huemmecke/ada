@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block titel %}{{ p.name }}{% endblock %}
+{% block inhalt %}
+<p class="brotkrume"><a href="/projekte">Projekte</a></p>
+<h1>{{ p.name }}</h1>
+{% if p.beschreibung %}<p class="untertitel">{{ p.beschreibung }}</p>{% endif %}
+
+<section>
+  <div class="abschnitt-kopf"><h2>Aufgaben</h2><a href="/aufgaben?projekt={{ p.id }}" class="leise">Als Board</a></div>
+  <details class="neu">
+    <summary>Neue Aufgabe</summary>
+    <form method="post" action="/aufgaben/neu" class="formular">
+      <input type="hidden" name="zurueck" value="/projekte/{{ p.id }}">
+      <input type="hidden" name="projekt_id" value="{{ p.id }}">
+      <input type="text" name="titel" placeholder="Titel" required>
+      <textarea name="beschreibung" rows="2" placeholder="Beschreibung"></textarea>
+      <div class="zeile">
+        <input type="text" name="zustaendig" list="zustaendige" value="martin" aria-label="Zuständig">
+        <select name="prioritaet" aria-label="Priorität"><option value="1">hoch</option><option value="2" selected>normal</option><option value="3">niedrig</option></select>
+        <input type="date" name="faellig" aria-label="Fällig">
+      </div>
+      <button type="submit" class="primaer">Anlegen</button>
+    </form>
+  </details>
+  {% if aufgaben %}<div class="liste">{% for a in aufgaben %}{% set mit_projekt = false %}{% include "_karte.html" %}{% endfor %}</div>
+  {% else %}<p class="leer">Keine Aufgaben.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Ideen</h2>
+  {% if ideen %}
+  <ul class="schlicht">{% for i in ideen %}<li>{{ i.text }} <span class="grau">· {{ i.erstellt[:10] }}{% if i.status == 'neu' %} · <a href="/eingang">unsortiert</a>{% endif %}</span></li>{% endfor %}</ul>
+  {% else %}<p class="leer">Keine Ideen.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Entwürfe</h2>
+  {% if entwuerfe %}
+  <ul class="schlicht">{% for x in entwuerfe %}<li><span class="marke-klein">{{ x.kanal }}</span> {{ x.inhalt | truncate(120) }} <span class="grau">· {{ x.status }}</span></li>{% endfor %}</ul>
+  <p><a href="/freigaben">Zu den Freigaben</a></p>
+  {% else %}<p class="leer">Keine Entwürfe.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Verlauf</h2>
+  {% if verlauf %}
+  <ul class="verlauf">{% for e in verlauf %}<li><span class="zeit">{{ e.zeit[:16] }}</span><span><strong>{{ e.wer }}</strong> {{ e.aktion | replace('_', ' ') }} <span class="grau">{{ e.details | details }}</span></span></li>{% endfor %}</ul>
+  {% else %}<p class="leer">Noch nichts passiert.</p>{% endif %}
+</section>
+
+<details class="neu">
+  <summary>Projekt bearbeiten</summary>
+  <form method="post" action="/projekte/{{ p.id }}/aendern" class="formular">
+    <input type="text" name="name" value="{{ p.name }}" required aria-label="Name">
+    <textarea name="beschreibung" rows="3" placeholder="Beschreibung">{{ p.beschreibung }}</textarea>
+    <select name="status" aria-label="Status">{% for s in projekt_status %}<option value="{{ s }}"{% if p.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+    <div class="knoepfe">
+      <button type="submit" class="primaer">Speichern</button>
+      <button type="submit" name="aktion" value="loeschen" class="gefahr" formnovalidate data-bestaetigen="Projekt „{{ p.name }}“ löschen? Aufgaben und Ideen bleiben erhalten, nur ohne Projekt.">Projekt löschen</button>
+    </div>
+  </form>
+</details>
+<datalist id="zustaendige">{% for z in zustaendige %}<option value="{{ z }}">{% endfor %}</datalist>
+{% endblock %}

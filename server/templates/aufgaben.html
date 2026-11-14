@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block titel %}Aufgaben{% endblock %}
+{% block main_klasse %}seite breit{% endblock %}
+{% block inhalt %}
+<div class="abschnitt-kopf">
+  <h1>Aufgaben</h1>
+  <form method="get" action="/aufgaben" class="filter">
+    <select name="projekt" aria-label="Projekt filtern" data-auto-absenden>
+      <option value="">Alle Projekte</option>
+      {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == projekt_filter %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select>
+    <noscript><button type="submit">Filtern</button></noscript>
+  </form>
+</div>
+
+<details class="neu">
+  <summary>Neue Aufgabe</summary>
+  <form method="post" action="/aufgaben/neu" class="formular">
+    <input type="hidden" name="zurueck" value="/aufgaben{% if projekt_filter %}?projekt={{ projekt_filter }}{% endif %}">
+    <input type="text" name="titel" placeholder="Titel" required>
+    <textarea name="beschreibung" rows="2" placeholder="Beschreibung"></textarea>
+    <div class="zeile">
+      <select name="projekt_id" aria-label="Projekt">
+        <option value="">ohne Projekt</option>
+        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == projekt_filter %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+      </select>
+      <input type="text" name="zustaendig" list="zustaendige" value="martin" aria-label="Zuständig">
+      <select name="prioritaet" aria-label="Priorität"><option value="1">hoch</option><option value="2" selected>normal</option><option value="3">niedrig</option></select>
+      <input type="date" name="faellig" aria-label="Fällig">
+    </div>
+    <button type="submit" class="primaer">Anlegen</button>
+  </form>
+</details>
+
+<div class="board">
+{% for k, l in spalten %}
+  <section class="spalte" data-status="{{ k }}">
+    <h2>{{ l }} <span class="anzahl">{{ spalten_daten[k] | length }}</span></h2>
+    <div class="spalte-inhalt">
+      {% for a in spalten_daten[k] %}{% include "_karte.html" %}{% endfor %}
+    </div>
+    {% if k == 'erledigt' %}<p class="hinweis">letzte 14 Tage</p>{% endif %}
+  </section>
+{% endfor %}
+</div>
+<datalist id="zustaendige">{% for z in zustaendige %}<option value="{{ z }}">{% endfor %}</datalist>
+{% endblock %}

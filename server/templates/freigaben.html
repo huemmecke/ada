@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block titel %}Freigaben{% endblock %}
+{% block inhalt %}
+<h1>Freigaben</h1>
+<p class="untertitel">Entwürfe von Ada. Freigegeben heißt noch nicht veröffentlicht: Veröffentlichen kommt in Phase 5 mit eigenem Klick.</p>
+
+{% if not offen %}<p class="leer">Nichts wartet auf Freigabe.</p>{% endif %}
+<div class="liste">
+{% for x in offen %}
+  <article class="entwurf">
+    <form method="post" action="/entwuerfe/{{ x.id }}" class="formular">
+      <input type="hidden" name="zurueck" value="/freigaben">
+      <div class="zeile">
+        <select name="kanal" aria-label="Kanal">{% for k in kanaele %}<option value="{{ k }}"{% if x.kanal == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
+        <select name="projekt_id" aria-label="Projekt">
+          <option value="">ohne Projekt</option>
+          {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == x.projekt_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+        </select>
+        <span class="grau klein">{{ x.erstellt[:16] }}</span>
+      </div>
+      <textarea name="inhalt" rows="8">{{ x.inhalt }}</textarea>
+      {% if x.medien_liste %}<ul class="schlicht klein">{% for m in x.medien_liste %}<li>{{ m }}</li>{% endfor %}</ul>{% endif %}
+      <div class="knoepfe">
+        <button type="submit" name="aktion" value="freigeben" class="primaer">Freigeben</button>
+        <button type="submit" name="aktion" value="speichern">Speichern</button>
+        <button type="submit" name="aktion" value="ablehnen" class="leise">Ablehnen</button>
+      </div>
+    </form>
+  </article>
+{% endfor %}
+</div>
+
+{% if erledigt %}
+<section>
+  <h2>Zuletzt entschieden</h2>
+  <ul class="schlicht">
+  {% for x in erledigt %}
+    <li>
+      <span class="marke-klein">{{ x.kanal }}</span> {{ x.inhalt | truncate(100) }}
+      <span class="grau">· {{ x.status }}{% if x.projekt %} · {{ x.projekt }}{% endif %}</span>
+      <form method="post" action="/entwuerfe/{{ x.id }}" class="inline">
+        <input type="hidden" name="zurueck" value="/freigaben">
+        {% if x.status != 'veroeffentlicht' %}<button type="submit" name="aktion" value="zurueck" class="leise klein">zurück zu Entwurf</button>{% endif %}
+        <button type="submit" name="aktion" value="loeschen" class="leise klein" data-bestaetigen="Entwurf löschen?">löschen</button>
+      </form>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

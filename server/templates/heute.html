@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titel %}Heute{% endblock %}
+{% block inhalt %}
+<h1>{{ datum }}</h1>
+<p class="untertitel">
+  {% if briefing %}Letztes Briefing: {{ briefing[:16] }}{% else %}Noch kein Briefing abgerufen{% endif %}
+</p>
+
+<div class="zahlen">
+  <a href="/eingang"><strong>{{ zahlen.eingang }}</strong> neue Ideen</a>
+  <a href="/freigaben"><strong>{{ zahlen.freigaben }}</strong> zur Freigabe</a>
+  <a href="/aufgaben"><strong>{{ zahlen.offen }}</strong> offene Aufgaben</a>
+  <a href="/aufgaben"><strong>{{ zahlen.wartet }}</strong> warten auf dich</a>
+</div>
+
+<div class="raster">
+  <section>
+    <h2>Termine</h2>
+    <div data-laden="/teil/termine?tage=2" class="laedt">Lädt …</div>
+  </section>
+  <section>
+    <h2>Ungelesene Mails</h2>
+    <div data-laden="/teil/mails" class="laedt">Lädt …</div>
+  </section>
+</div>
+
+<section>
+  <h2>Wichtigste Aufgaben</h2>
+  {% if top %}
+  <div class="liste">{% for a in top %}{% include "_karte.html" %}{% endfor %}</div>
+  {% else %}<p class="leer">Keine offenen Aufgaben.</p>{% endif %}
+</section>
+
+{% if erledigt %}
+<section>
+  <h2>Seit gestern erledigt</h2>
+  <ul class="schlicht">
+    {% for a in erledigt %}<li><a href="/aufgaben/{{ a.id }}">{{ a.titel }}</a>{% if a.projekt %} <span class="grau">· {{ a.projekt }}</span>{% endif %}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

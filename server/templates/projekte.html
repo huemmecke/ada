@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block titel %}Projekte{% endblock %}
+{% block inhalt %}
+<h1>Projekte</h1>
+<ul class="projektliste">
+{% for p in projekte %}
+  <li class="status-{{ p.status }}">
+    <a href="/projekte/{{ p.id }}">
+      <span class="name">{{ p.name }}</span>
+      <span class="meta">
+        {% if p.status != 'aktiv' %}<span>{{ p.status }}</span>{% endif %}
+        {% if p.offen %}<span>{{ p.offen }} offen</span>{% endif %}
+        {% if p.ideen %}<span>{{ p.ideen }} Ideen</span>{% endif %}
+        {% if p.entwuerfe %}<span>{{ p.entwuerfe }} Entwürfe</span>{% endif %}
+      </span>
+    </a>
+  </li>
+{% endfor %}
+</ul>
+<details class="neu">
+  <summary>Neues Projekt</summary>
+  <form method="post" action="/projekte/neu" class="formular">
+    <input type="text" name="name" placeholder="Name" required>
+    <textarea name="beschreibung" rows="2" placeholder="Beschreibung (optional)"></textarea>
+    <button type="submit" class="primaer">Anlegen</button>
+  </form>
+</details>
+{% endblock %}

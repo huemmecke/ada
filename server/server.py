@@ -704,12 +704,16 @@ def _app():
         allowed_hosts=allowed,
         allowed_origins=["https://claude.ai", "https://claude.com"],
     )
-    return mcp.streamable_http_app(
+    app = mcp.streamable_http_app(
         streamable_http_path=f"/{secret}/mcp",
         stateless_http=True,
         transport_security=security,
         host="0.0.0.0",
     )
+    # Dashboard unter / (eigener Login, siehe dashboard.py)
+    import dashboard
+    app.router.routes.extend(dashboard.baue_routen(termine, mails_neueste))
+    return app
 
 
 if __name__ == "__main__":

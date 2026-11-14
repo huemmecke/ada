@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block titel %}Eingang{% endblock %}
+{% block inhalt %}
+<h1>Eingang</h1>
+
+<form method="post" action="/eingang/neu" class="schnell">
+  <input type="hidden" name="zurueck" value="/eingang">
+  <textarea name="text" rows="2" placeholder="Neue Idee …" required></textarea>
+  <div class="zeile">
+    <select name="projekt_id" aria-label="Projekt">
+      <option value="">ohne Projekt</option>
+      {% for p in projekte %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="primaer">Notieren</button>
+  </div>
+</form>
+
+<nav class="reiter">
+  {% for k, l in [("neu","Neu"),("sortiert","Sortiert"),("verworfen","Verworfen")] %}
+  <a href="/eingang?status={{ k }}"{% if status == k %} aria-current="page"{% endif %}>{{ l }}</a>
+  {% endfor %}
+</nav>
+
+{% if not ideen %}<p class="leer">{{ 'Der Eingang ist leer.' if status == 'neu' else 'Nichts hier.' }}</p>{% endif %}
+<div class="liste">
+{% for i in ideen %}
+  <article class="idee">
+    <p class="idee-text">{{ i.text }}</p>
+    <div class="meta"><span>{{ i.erstellt[:16] }}</span><span>{{ i.quelle }}</span>{% if i.projekt %}<span>{{ i.projekt }}</span>{% endif %}</div>
+    <form method="post" action="/eingang/{{ i.id }}" class="idee-aktionen">
+      <input type="hidden" name="zurueck" value="/eingang?status={{ status }}">
+      {% if status == 'neu' %}
+      <select name="projekt_id" aria-label="Projekt">
+        <option value="">ohne Projekt</option>
+        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == i.projekt_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+      </select>
+      <details class="als-aufgabe">
+        <summary>Als Aufgabe …</summary>
+        <input type="text" name="titel" placeholder="Titel (sonst aus der Idee)">
+        <input type="text" name="zustaendig" list="zustaendige" value="martin" aria-label="Zuständig">
+        <button type="submit" name="aktion" value="aufgabe" class="primaer">Aufgabe anlegen</button>
+      </details>
+      <div class="knoepfe">
+        <button type="submit" name="aktion" value="zuordnen">Einsortieren</button>
+        <button type="submit" name="aktion" value="verwerfen" class="leise">Verwerfen</button>
+      </div>
+      {% else %}
+      <div class="knoepfe">
+        <button type="submit" name="aktion" value="zurueck">Zurück in den Eingang</button>
+        <button type="submit" name="aktion" value="loeschen" class="gefahr" data-bestaetigen="Idee endgültig löschen?">Löschen</button>
+      </div>
+      {% endif %}
+    </form>
+  </article>
+{% endfor %}
+</div>
+<datalist id="zustaendige">{% for z in zustaendige %}<option value="{{ z }}">{% endfor %}</datalist>
+{% endblock %}
