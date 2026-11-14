@@ -1,0 +1,4 @@
+mcp==2.3.0
+imapclient==4.1.0
+caldav==3.7.0
+icalendar==7.3.0

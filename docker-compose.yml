@@ -1,0 +1,21 @@
+# Für Coolify: Build-Typ "Docker Compose". Domain und HTTPS macht Coolify,
+# deshalb keine "ports:"-Freigabe nach außen.
+services:
+  app:
+    build: ./server
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      - MCP_SECRET=${MCP_SECRET}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - GMX_USER=${GMX_USER}
+      - GMX_PASSWORD=${GMX_PASSWORD}
+      - ICLOUD_USER=${ICLOUD_USER}
+      - ICLOUD_APP_PASSWORD=${ICLOUD_APP_PASSWORD}
+      - TZ_NAME=${TZ_NAME:-Europe/Berlin}
+    volumes:
+      - ada-data:/data   # ab Phase 2: SQLite unter /data/ada.db
+
+volumes:
+  ada-data:
