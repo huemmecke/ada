@@ -2,7 +2,29 @@
 
 Persönliche Assistentin für Martin: MCP-Server für Claude (Mail, Kalender; später Ideen, Aufgaben, Dashboard). Läuft auf Hetzner mit Coolify. Den ganzen Plan findest du in `AUFTRAG.md`.
 
-## Stand: Phase 1 – Mail und Kalender
+## Stand: Phase 2 – Datenbank und Ada-Werkzeuge
+
+Neu: SQLite unter `/data/ada.db` (Volume `ada-data`, bleibt bei Redeploys erhalten). Beim ersten Start werden die Tabellen angelegt und die 11 Startprojekte eingetragen. Jede Änderung landet in der Tabelle `protokoll`.
+
+| Tool | Funktion |
+|---|---|
+| `idee_notieren` | Rohe Idee in den Eingang, optional mit Projekt |
+| `eingang_anzeigen` | Ideen nach Status (neu / sortiert / verworfen / alle) |
+| `idee_einsortieren` | Idee einem Projekt zuordnen, optional gleich als Aufgabe anlegen oder verwerfen |
+| `projekte_anzeigen` | Projekte mit Zahl der offenen Aufgaben und neuen Ideen |
+| `projekt_anlegen` | Neues Projekt |
+| `projekt_status` | Ein Projekt: offene Aufgaben, Ideen, Entwürfe, letzte Aktivitäten |
+| `aufgabe_anlegen` | Aufgabe mit Projekt, Zuständigkeit, Priorität 1–3, Fälligkeit |
+| `aufgaben_anzeigen` | Aufgaben filtern nach Status, Projekt, Zuständig, Priorität, Fälligkeit |
+| `aufgabe_aktualisieren` | Status, Ergebnis (wird angehängt) und andere Felder ändern |
+| `entwurf_anlegen` | Entwurf für mail/instagram/linkedin/tiktok/website, wartet auf Freigabe |
+| `briefing` | Termine heute und morgen, ungelesene Mails (24 h), Aufgaben, Eingang, Freigaben, gestern Erledigtes |
+
+Projekte kann man per Name oder ID angeben. Ein eindeutiger Teil des Namens reicht, z. B. „nyria“ oder „synth“. Die Tools können nichts löschen.
+
+**Test Phase 2:** In der Claude-App eine Idee diktieren, z. B. „Notier mir: Der Kontaktbutton auf der Website soll grün werden.“ Dann „Zeig mir den Eingang“ und „Sortier die Idee ins Projekt Website ein und mach eine Aufgabe draus.“ Zum Schluss „briefing“ aufrufen lassen.
+
+## Phase 1 – Mail und Kalender
 
 | Tool | Funktion |
 |---|---|

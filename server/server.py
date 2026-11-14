@@ -10,6 +10,7 @@ from __future__ import annotations
 import email
 import functools
 import html
+import json
 import os
 import re
 import uuid
@@ -20,6 +21,8 @@ from email.utils import formatdate, make_msgid, parsedate_to_datetime
 from zoneinfo import ZoneInfo
 
 import caldav
+
+import db
 from imapclient import IMAPClient
 
 DRAFTS = b"\\Drafts"  # SPECIAL-USE-Flag
@@ -43,8 +46,10 @@ MAX_BODY_CHARS = 8000
 mcp = MCPServer(
     name="assistentin",
     instructions=(
-        "Zugriff auf Martins GMX-Postfach und seinen iCloud-Kalender. "
-        "Zeiten sind Europe/Berlin. Mails werden nie gesendet, nur als Entwurf abgelegt."
+        "Ada: Martins Assistentin. Zugriff auf sein GMX-Postfach, seinen iCloud-Kalender und seine "
+        "Projekte, Ideen (Eingang), Aufgaben und Entwürfe. Zeiten sind Europe/Berlin. "
+        "Es wird nie etwas gesendet oder veröffentlicht: Mails nur als Entwurf, Posts nur als Entwurf "
+        "zur Freigabe im Dashboard. Löschen geht nur im Dashboard."
     ),
 )
 
@@ -374,12 +379,325 @@ def termin_eintragen(titel: str, start: str, ende: str = "", kalender: str = "",
     return {"ok": True, "kalender": cal.name, "titel": titel, "start": str(dtstart), "ende": str(dtend)}
 
 
+# ---------------------------------------------------------------- Ada: Helfer
+def _projekt_id(con, projekt) -> int | None:
+    """Projekt per ID oder Name finden (Groß/klein egal, eindeutiger Teil reicht). Leer = None."""
+    if projekt in (None, "", 0):
+        return None
+    if isinstance(projekt, int) or str(projekt).strip().isdigit():
+        row = con.execute("SELECT id FROM projekte WHERE id = ?", (int(projekt),)).fetchone()
+        if row:
+            return row["id"]
+        raise ValueError(f"Projekt mit ID {projekt} gibt es nicht.")
+    name = str(projekt).strip()
+    row = con.execute("SELECT id FROM projekte WHERE lower(name) = lower(?)", (name,)).fetchone()
+    if row:
+        return row["id"]
+    treffer = con.execute("SELECT id, name FROM projekte WHERE lower(name) LIKE lower(?)",
+                          (f"%{name}%",)).fetchall()
+    if len(treffer) == 1:
+        return treffer[0]["id"]
+    alle = [r["name"] for r in con.execute("SELECT name FROM projekte ORDER BY name")]
+    if treffer:
+        raise ValueError(f"Projekt {name!r} ist nicht eindeutig: {[r['name'] for r in treffer]}")
+    raise ValueError(f"Projekt {name!r} nicht gefunden. Vorhanden: {alle}")
+
+
+def _pruefe(wert, erlaubt: tuple, feld: str):
+    if wert not in erlaubt:
+        raise ValueError(f"{feld} muss einer dieser Werte sein: {', '.join(erlaubt)}")
+
+
+def _faellig(s: str) -> str | None:
+    s = (s or "").strip()
+    if not s:
+        return None
+    return _parse_when(s).strftime("%Y-%m-%d %H:%M" if " " in s or "T" in s else "%Y-%m-%d")
+
+
+AUFGABE_SQL = """SELECT a.*, p.name AS projekt FROM aufgaben a
+                 LEFT JOIN projekte p ON p.id = a.projekt_id"""
+
+
+# ---------------------------------------------------------------- Ada: Eingang
+@mcp.tool()
+@_safe
+def idee_notieren(text: str, projekt: str = "", quelle: str = "chat") -> dict:
+    """Notiert eine rohe Idee in Martins Eingang. Nutze das, sobald Martin einen Gedanken,
+    Einfall oder Wunsch äußert, der nicht sofort erledigt wird. `projekt` (Name oder ID) nur
+    angeben, wenn klar ist, wozu die Idee gehört. `quelle`: sprache, chat, mail oder dashboard."""
+    _pruefe(quelle, db.EINGANG_QUELLEN, "quelle")
+    with db.verbindung() as con:
+        pid = _projekt_id(con, projekt)
+        cur = con.execute("INSERT INTO eingang (text, quelle, projekt_id, erstellt) VALUES (?,?,?,?)",
+                          (text.strip(), quelle, pid, db.jetzt()))
+        db.protokollieren(con, "ada", "idee_notiert", {"id": cur.lastrowid, "projekt_id": pid, "text": text[:200]})
+        return {"ok": True, "id": cur.lastrowid, "projekt_id": pid}
+
+
+@mcp.tool()
+@_safe
+def eingang_anzeigen(status: str = "neu", limit: int = 50) -> list[dict] | dict:
+    """Zeigt Ideen im Eingang. `status`: neu (Standard, noch unsortiert), sortiert, verworfen
+    oder 'alle'. Neueste zuerst."""
+    with db.verbindung() as con:
+        sql = "SELECT e.*, p.name AS projekt FROM eingang e LEFT JOIN projekte p ON p.id = e.projekt_id"
+        args: list = []
+        if status != "alle":
+            _pruefe(status, db.EINGANG_STATUS, "status")
+            sql += " WHERE e.status = ?"
+            args.append(status)
+        sql += " ORDER BY e.erstellt DESC LIMIT ?"
+        args.append(limit)
+        return db.zeilen(con.execute(sql, args))
+
+
+@mcp.tool()
+@_safe
+def idee_einsortieren(id: int, projekt: str = "", als_aufgabe: bool = False, aufgabe_titel: str = "",
+                      zustaendig: str = "martin", prioritaet: int = 2, verwerfen: bool = False) -> dict:
+    """Sortiert eine Idee aus dem Eingang ein: einem Projekt (Name oder ID) zuordnen und
+    optional gleich als Aufgabe anlegen (`als_aufgabe`, Titel sonst aus dem Ideentext).
+    Mit `verwerfen=True` wird die Idee als verworfen markiert (nicht gelöscht)."""
+    with db.verbindung() as con:
+        idee = con.execute("SELECT * FROM eingang WHERE id = ?", (id,)).fetchone()
+        if not idee:
+            return {"fehler": f"Idee {id} gibt es nicht."}
+        if verwerfen:
+            con.execute("UPDATE eingang SET status = 'verworfen' WHERE id = ?", (id,))
+            db.protokollieren(con, "ada", "idee_verworfen", {"id": id})
+            return {"ok": True, "id": id, "status": "verworfen"}
+        pid = _projekt_id(con, projekt) if projekt else idee["projekt_id"]
+        con.execute("UPDATE eingang SET projekt_id = ?, status = 'sortiert' WHERE id = ?", (pid, id))
+        out = {"ok": True, "id": id, "projekt_id": pid, "status": "sortiert"}
+        if als_aufgabe:
+            t = db.jetzt()
+            titel = aufgabe_titel.strip() or idee["text"].strip().split("\n")[0][:120]
+            cur = con.execute(
+                "INSERT INTO aufgaben (titel, beschreibung, projekt_id, zustaendig, prioritaet, erstellt, aktualisiert)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (titel, idee["text"], pid, zustaendig, prioritaet, t, t))
+            out["aufgabe_id"] = cur.lastrowid
+        db.protokollieren(con, "ada", "idee_einsortiert", out)
+        return out
+
+
+# ---------------------------------------------------------------- Ada: Projekte
+@mcp.tool()
+@_safe
+def projekte_anzeigen(status: str = "") -> list[dict] | dict:
+    """Listet Martins Projekte mit Zahl der offenen Aufgaben und unsortierten Ideen.
+    Optional nach `status` filtern: aktiv, ruht, fertig."""
+    sql = """SELECT p.id, p.name, p.beschreibung, p.status,
+               (SELECT COUNT(*) FROM aufgaben a WHERE a.projekt_id = p.id AND a.status != 'erledigt') AS offene_aufgaben,
+               (SELECT COUNT(*) FROM eingang e WHERE e.projekt_id = p.id AND e.status = 'neu') AS neue_ideen
+             FROM projekte p"""
+    args: list = []
+    if status:
+        _pruefe(status, db.PROJEKT_STATUS, "status")
+        sql += " WHERE p.status = ?"
+        args.append(status)
+    with db.verbindung() as con:
+        return db.zeilen(con.execute(sql + " ORDER BY p.status, p.name", args))
+
+
+@mcp.tool()
+@_safe
+def projekt_anlegen(name: str, beschreibung: str = "") -> dict:
+    """Legt ein neues Projekt an. Vorher mit `projekte_anzeigen` prüfen, ob es schon existiert."""
+    with db.verbindung() as con:
+        if con.execute("SELECT 1 FROM projekte WHERE lower(name) = lower(?)", (name.strip(),)).fetchone():
+            return {"fehler": f"Projekt {name!r} gibt es schon."}
+        cur = con.execute("INSERT INTO projekte (name, beschreibung, erstellt) VALUES (?,?,?)",
+                          (name.strip(), beschreibung.strip(), db.jetzt()))
+        db.protokollieren(con, "ada", "projekt_angelegt", {"id": cur.lastrowid, "name": name})
+        return {"ok": True, "id": cur.lastrowid, "name": name}
+
+
+@mcp.tool()
+@_safe
+def projekt_status(projekt: str) -> dict:
+    """Überblick zu einem Projekt (Name oder ID): offene Aufgaben, neue Ideen,
+    Entwürfe und die letzten Aktivitäten aus dem Protokoll."""
+    with db.verbindung() as con:
+        pid = _projekt_id(con, projekt)
+        if pid is None:
+            return {"fehler": "Bitte ein Projekt angeben."}
+        p = dict(con.execute("SELECT * FROM projekte WHERE id = ?", (pid,)).fetchone())
+        p["offene_aufgaben"] = db.zeilen(con.execute(
+            AUFGABE_SQL + " WHERE a.projekt_id = ? AND a.status != 'erledigt' ORDER BY a.prioritaet, a.faellig IS NULL, a.faellig",
+            (pid,)))
+        p["neue_ideen"] = db.zeilen(con.execute(
+            "SELECT id, text, erstellt FROM eingang WHERE projekt_id = ? AND status = 'neu' ORDER BY erstellt DESC", (pid,)))
+        p["entwuerfe"] = db.zeilen(con.execute(
+            "SELECT id, kanal, status, substr(inhalt, 1, 200) AS inhalt, erstellt FROM entwuerfe"
+            " WHERE projekt_id = ? AND status IN ('entwurf', 'freigegeben') ORDER BY erstellt DESC", (pid,)))
+        p["zuletzt_erledigt"] = db.zeilen(con.execute(
+            "SELECT id, titel, ergebnis, aktualisiert FROM aufgaben WHERE projekt_id = ? AND status = 'erledigt'"
+            " ORDER BY aktualisiert DESC LIMIT 5", (pid,)))
+        p["letzte_aktivitaeten"] = db.zeilen(con.execute(
+            "SELECT zeit, wer, aktion, details FROM protokoll"
+            " WHERE json_valid(details) AND json_extract(details, '$.projekt_id') = ?"
+            " ORDER BY zeit DESC LIMIT 10", (pid,)))
+        return p
+
+
+# ---------------------------------------------------------------- Ada: Aufgaben
+@mcp.tool()
+@_safe
+def aufgabe_anlegen(titel: str, beschreibung: str = "", projekt: str = "", zustaendig: str = "martin",
+                    prioritaet: int = 2, faellig: str = "") -> dict:
+    """Legt eine Aufgabe an. `zustaendig`: martin, ada, claude-code, recherche o. ä.
+    (claude-code = wird später automatisch von Claude Code bearbeitet).
+    `prioritaet`: 1 = hoch, 2 = normal, 3 = niedrig. `faellig`: 'YYYY-MM-DD' oder 'YYYY-MM-DD HH:MM'.
+    Die Beschreibung so formulieren, dass der Zuständige ohne Rückfrage loslegen kann."""
+    if prioritaet not in (1, 2, 3):
+        return {"fehler": "prioritaet muss 1, 2 oder 3 sein."}
+    with db.verbindung() as con:
+        pid = _projekt_id(con, projekt)
+        t = db.jetzt()
+        status = "offen"
+        cur = con.execute(
+            "INSERT INTO aufgaben (titel, beschreibung, projekt_id, status, zustaendig, prioritaet, faellig, erstellt, aktualisiert)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (titel.strip(), beschreibung.strip(), pid, status, zustaendig.strip().lower(), prioritaet,
+             _faellig(faellig), t, t))
+        db.protokollieren(con, "ada", "aufgabe_angelegt",
+                          {"id": cur.lastrowid, "projekt_id": pid, "titel": titel, "zustaendig": zustaendig})
+        return {"ok": True, "id": cur.lastrowid, "projekt_id": pid, "status": status}
+
+
+@mcp.tool()
+@_safe
+def aufgaben_anzeigen(status: str = "offen_alle", projekt: str = "", zustaendig: str = "",
+                      prioritaet: int = 0, faellig_bis: str = "", limit: int = 50) -> list[dict] | dict:
+    """Listet Aufgaben, sortiert nach Priorität und Fälligkeit.
+    `status`: offen_alle (Standard: alles außer erledigt), alle, oder einer von
+    offen, in_arbeit, delegiert, wartet, erledigt. Weitere Filter: `projekt` (Name/ID),
+    `zustaendig`, `prioritaet` (1–3), `faellig_bis` ('YYYY-MM-DD')."""
+    sql, args, wo = AUFGABE_SQL, [], []
+    with db.verbindung() as con:
+        if status == "offen_alle":
+            wo.append("a.status != 'erledigt'")
+        elif status != "alle":
+            _pruefe(status, db.AUFGABEN_STATUS, "status")
+            wo.append("a.status = ?"); args.append(status)
+        if projekt:
+            wo.append("a.projekt_id = ?"); args.append(_projekt_id(con, projekt))
+        if zustaendig:
+            wo.append("a.zustaendig = ?"); args.append(zustaendig.strip().lower())
+        if prioritaet:
+            wo.append("a.prioritaet = ?"); args.append(prioritaet)
+        if faellig_bis:
+            wo.append("a.faellig IS NOT NULL AND a.faellig <= ?"); args.append(faellig_bis.strip() + " 99")
+        if wo:
+            sql += " WHERE " + " AND ".join(wo)
+        sql += " ORDER BY a.prioritaet, a.faellig IS NULL, a.faellig, a.erstellt LIMIT ?"
+        args.append(limit)
+        return db.zeilen(con.execute(sql, args))
+
+
+@mcp.tool()
+@_safe
+def aufgabe_aktualisieren(id: int, status: str = "", ergebnis: str = "", titel: str = "", beschreibung: str = "",
+                          projekt: str = "", zustaendig: str = "", prioritaet: int = 0, faellig: str = "") -> dict:
+    """Ändert eine Aufgabe. Nur angegebene Felder werden geändert.
+    `status`: offen, in_arbeit, delegiert, wartet, erledigt. `ergebnis`: Rückmeldung des Bearbeiters
+    (wird angehängt, nicht überschrieben). Löschen ist hier nicht möglich, nur im Dashboard."""
+    with db.verbindung() as con:
+        alt = con.execute("SELECT * FROM aufgaben WHERE id = ?", (id,)).fetchone()
+        if not alt:
+            return {"fehler": f"Aufgabe {id} gibt es nicht."}
+        neu: dict = {}
+        if status:
+            _pruefe(status, db.AUFGABEN_STATUS, "status"); neu["status"] = status
+        if ergebnis:
+            neu["ergebnis"] = (alt["ergebnis"] + "\n\n" if alt["ergebnis"] else "") + f"[{db.jetzt()[:16]}] {ergebnis.strip()}"
+        if titel:
+            neu["titel"] = titel.strip()
+        if beschreibung:
+            neu["beschreibung"] = beschreibung.strip()
+        if projekt:
+            neu["projekt_id"] = _projekt_id(con, projekt)
+        if zustaendig:
+            neu["zustaendig"] = zustaendig.strip().lower()
+        if prioritaet:
+            if prioritaet not in (1, 2, 3):
+                return {"fehler": "prioritaet muss 1, 2 oder 3 sein."}
+            neu["prioritaet"] = prioritaet
+        if faellig:
+            neu["faellig"] = _faellig(faellig)
+        if not neu:
+            return {"fehler": "Nichts zu ändern angegeben."}
+        neu["aktualisiert"] = db.jetzt()
+        con.execute(f"UPDATE aufgaben SET {', '.join(k + ' = ?' for k in neu)} WHERE id = ?", [*neu.values(), id])
+        db.protokollieren(con, "ada", "aufgabe_aktualisiert",
+                          {"id": id, "projekt_id": neu.get("projekt_id", alt["projekt_id"]),
+                           **{k: v for k, v in neu.items() if k not in ("aktualisiert", "ergebnis")},
+                           **({"ergebnis": ergebnis[:200]} if ergebnis else {})})
+        return {"ok": True, "id": id, "geaendert": [k for k in neu if k != "aktualisiert"]}
+
+
+# ---------------------------------------------------------------- Ada: Entwürfe
+@mcp.tool()
+@_safe
+def entwurf_anlegen(kanal: str, inhalt: str, projekt: str = "", medien: list[str] | None = None) -> dict:
+    """Legt einen Entwurf zur Freigabe im Dashboard an. Es wird NICHTS veröffentlicht oder gesendet;
+    Martin prüft und gibt im Dashboard frei. `kanal`: mail, instagram, linkedin, tiktok, website.
+    `medien`: optionale Liste von Bild-/Video-Links. (Für Mail-Entwürfe direkt im Postfach: `mail_entwurf`.)"""
+    _pruefe(kanal, db.ENTWURF_KANAELE, "kanal")
+    with db.verbindung() as con:
+        pid = _projekt_id(con, projekt)
+        cur = con.execute("INSERT INTO entwuerfe (kanal, inhalt, medien, projekt_id, erstellt) VALUES (?,?,?,?,?)",
+                          (kanal, inhalt.strip(), json.dumps(medien or [], ensure_ascii=False), pid, db.jetzt()))
+        db.protokollieren(con, "ada", "entwurf_angelegt", {"id": cur.lastrowid, "projekt_id": pid, "kanal": kanal})
+        return {"ok": True, "id": cur.lastrowid, "status": "entwurf", "hinweis": "Wartet auf Freigabe im Dashboard."}
+
+
+# ---------------------------------------------------------------- Ada: Briefing
+WOCHENTAGE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
+
+
+@mcp.tool()
+@_safe
+def briefing() -> dict:
+    """Alles für Martins Morgen-Briefing in einem Aufruf: Termine heute und morgen,
+    ungelesene Mails der letzten 24 h (nur Kopfzeilen), offene Aufgaben nach Priorität,
+    unsortierter Eingang, Entwürfe, die auf Freigabe warten, und seit gestern erledigte Aufgaben.
+    Fasse das knapp zusammen: Wichtigstes zuerst, nichts erfinden."""
+    jetzt = datetime.now(TZ)
+    out: dict = {"stand": jetzt.strftime("%Y-%m-%d %H:%M"), "wochentag": WOCHENTAGE[jetzt.weekday()]}
+    out["termine_heute_morgen"] = termine(tage=2)
+    mails = mails_neueste(tage=1, nur_ungelesen=True, limit=50)
+    if isinstance(mails, list):
+        grenze = (jetzt - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M")
+        mails = [m for m in mails if m.get("datum", "") >= grenze]
+    out["ungelesene_mails_24h"] = mails
+    gestern = (jetzt - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
+    with db.verbindung() as con:
+        out["offene_aufgaben"] = db.zeilen(con.execute(
+            AUFGABE_SQL + " WHERE a.status != 'erledigt'"
+            " ORDER BY a.prioritaet, a.faellig IS NULL, a.faellig LIMIT 30"))
+        out["eingang_unsortiert"] = db.zeilen(con.execute(
+            "SELECT e.id, e.text, e.quelle, p.name AS projekt, e.erstellt FROM eingang e"
+            " LEFT JOIN projekte p ON p.id = e.projekt_id WHERE e.status = 'neu' ORDER BY e.erstellt DESC LIMIT 30"))
+        out["entwuerfe_zur_freigabe"] = db.zeilen(con.execute(
+            "SELECT x.id, x.kanal, substr(x.inhalt, 1, 200) AS inhalt, p.name AS projekt, x.erstellt FROM entwuerfe x"
+            " LEFT JOIN projekte p ON p.id = x.projekt_id WHERE x.status = 'entwurf' ORDER BY x.erstellt"))
+        out["erledigt_seit_gestern"] = db.zeilen(con.execute(
+            AUFGABE_SQL + " WHERE a.status = 'erledigt' AND a.aktualisiert >= ? ORDER BY a.aktualisiert DESC",
+            (gestern,)))
+        db.protokollieren(con, "ada", "briefing", "")
+    return out
+
+
 # ---------------------------------------------------------------- Start
 def _app():
     """Baut die ASGI-App. Antwortet nur unter /<MCP_SECRET>/mcp, sonst 404."""
     secret = os.environ.get("MCP_SECRET", "").strip()
     if len(secret) < 32 or not re.fullmatch(r"[A-Za-z0-9_-]+", secret):
         raise SystemExit("MCP_SECRET fehlt oder ist zu kurz (mind. 32 Zeichen, z. B. openssl rand -hex 32).")
+    db.init()
     allowed = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()]
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=bool(allowed),
