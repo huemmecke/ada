@@ -49,6 +49,8 @@ Projekte kann man per Name oder ID angeben. Ein eindeutiger Teil des Namens reic
 
 ## Phase 1 – Mail und Kalender
 
+**Ergänzung:** `mail_verschieben(uids, ziel)` verschiebt Mails in einen bestehenden Ordner, mit `ordner_anlegen=True` auch in einen neuen (z. B. „Erledigt“), oder per `papierkorb` / `archiv`. Endgültig gelöscht wird nie. Höchstens 50 Mails pro Aufruf, jede Verschiebung steht im Protokoll.
+
 | Tool | Funktion |
 |---|---|
 | `mails_neueste` | Mails der letzten Tage, optional nur ungelesene |

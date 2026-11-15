@@ -26,6 +26,8 @@ import db
 from imapclient import IMAPClient
 
 DRAFTS = b"\\Drafts"  # SPECIAL-USE-Flag
+TRASH = b"\\Trash"
+ARCHIVE = b"\\Archive"
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -49,7 +51,8 @@ mcp = MCPServer(
         "Ada: Martins Assistentin. Zugriff auf sein GMX-Postfach, seinen iCloud-Kalender und seine "
         "Projekte, Ideen (Eingang), Aufgaben und Entwürfe. Zeiten sind Europe/Berlin. "
         "Es wird nie etwas gesendet oder veröffentlicht: Mails nur als Entwurf, Posts nur als Entwurf "
-        "zur Freigabe im Dashboard. Löschen geht nur im Dashboard."
+        "zur Freigabe im Dashboard. Mails können verschoben werden (auch in den Papierkorb), "
+        "endgültig gelöscht wird nichts. Löschen von Daten geht nur im Dashboard."
     ),
 )
 
@@ -242,6 +245,70 @@ def mail_entwurf(an: str, betreff: str, text: str, cc: str = "", antwort_auf_mes
         drafts = c.find_special_folder(DRAFTS) or "Entwürfe"
         c.append(drafts, msg.as_bytes(), flags=[b"\\Draft"])
     return {"ok": True, "ordner": drafts, "betreff": betreff}
+
+
+@mcp.tool()
+@_safe
+def mail_verschieben(uids: list[int], ziel: str, ordner: str = "INBOX", ordner_anlegen: bool = False) -> dict:
+    """Verschiebt Mails (uids aus `mails_neueste`/`mails_suchen`) aus `ordner` in den Ordner `ziel`.
+    `ziel`: Name eines bestehenden Ordners (siehe `mail_ordner`), oder 'papierkorb' bzw. 'archiv'.
+    Mit `ordner_anlegen=True` wird ein fehlender Zielordner angelegt (z. B. „Erledigt“).
+    Endgültig gelöscht wird NIE, auch nicht im Papierkorb. Höchstens 50 Mails pro Aufruf.
+    Vorher sicherstellen, dass die richtigen Mails gemeint sind; im Zweifel Martin fragen."""
+    uids = sorted({int(u) for u in uids})
+    if not uids:
+        return {"fehler": "Keine uids angegeben."}
+    if len(uids) > 50:
+        return {"fehler": "Höchstens 50 Mails pro Aufruf."}
+    with _imap() as c:
+        ordner_namen = [name for _f, _d, name in c.list_folders()]
+        z = ziel.strip()
+        if z.lower() in ("papierkorb", "trash", "gelöscht", "geloescht"):
+            ziel_ordner = c.find_special_folder(TRASH) or next(
+                (n for n in ordner_namen if n.lower() in ("gelöscht", "papierkorb", "trash")), None)
+        elif z.lower() in ("archiv", "archive"):
+            ziel_ordner = c.find_special_folder(ARCHIVE) or next(
+                (n for n in ordner_namen if n.lower() in ("archiv", "archive")), None)
+        else:
+            ziel_ordner = next((n for n in ordner_namen if n == z), None) or next(
+                (n for n in ordner_namen if n.lower() == z.lower()), None)
+        if ziel_ordner is None:
+            if not ordner_anlegen or z.lower() in ("papierkorb", "trash", "archiv", "archive"):
+                return {"fehler": f"Ordner {z!r} nicht gefunden.", "ordner": ordner_namen,
+                        "tipp": "Mit ordner_anlegen=True wird er angelegt."}
+            c.create_folder(z)
+            ziel_ordner = z
+        if ziel_ordner == ordner:
+            return {"fehler": "Quell- und Zielordner sind gleich."}
+        c.select_folder(ordner)
+        daten = c.fetch(uids, ["ENVELOPE"])
+        gefunden = [u for u in uids if u in daten]
+        if not gefunden:
+            return {"fehler": f"Keine der Mails in {ordner!r} gefunden."}
+        kopf = [_summary(u, daten[u]) for u in gefunden]
+        caps = c.capabilities()
+        if b"MOVE" in caps:
+            c.move(gefunden, ziel_ordner)
+            hinweis = ""
+        elif b"UIDPLUS" in caps:
+            # Kopieren, dann NUR genau diese Mails im Quellordner entfernen (UID EXPUNGE)
+            c.copy(gefunden, ziel_ordner)
+            c.add_flags(gefunden, [b"\\Deleted"])
+            c.uid_expunge(gefunden)
+            hinweis = ""
+        else:
+            c.copy(gefunden, ziel_ordner)
+            hinweis = "Server kann nicht verschieben: Mails wurden nur kopiert, das Original bleibt."
+    with db.verbindung() as con:
+        db.protokollieren(con, "ada", "mail_verschoben", {
+            "von": ordner, "nach": ziel_ordner, "anzahl": len(gefunden),
+            "mails": [f"{m['datum']} · {m['von']} · {m['betreff']}"[:160] for m in kopf]})
+    out = {"ok": True, "nach": ziel_ordner, "verschoben": len(gefunden),
+           "nicht_gefunden": [u for u in uids if u not in daten],
+           "mails": [{"von": m["von"], "betreff": m["betreff"]} for m in kopf]}
+    if hinweis:
+        out["hinweis"] = hinweis
+    return out
 
 
 @mcp.tool()
