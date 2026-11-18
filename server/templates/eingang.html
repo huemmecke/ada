@@ -9,7 +9,7 @@
   <div class="zeile">
     <select name="projekt_id" aria-label="Projekt">
       <option value="">ohne Projekt</option>
-      {% for p in projekte %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      {% for p in projekte %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}
     </select>
     <button type="submit" class="primaer">Notieren</button>
   </div>
@@ -32,7 +32,7 @@
       {% if status == 'neu' %}
       <select name="projekt_id" aria-label="Projekt">
         <option value="">ohne Projekt</option>
-        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == i.projekt_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == i.projekt_id %} selected{% endif %}>{{ p.label }}</option>{% endfor %}
       </select>
       <details class="als-aufgabe">
         <summary>Als Aufgabe …</summary>

@@ -13,7 +13,7 @@
     <label>Projekt
       <select name="projekt_id">
         <option value="">ohne Projekt</option>
-        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == a.projekt_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == a.projekt_id %} selected{% endif %}>{{ p.label }}</option>{% endfor %}
       </select>
     </label>
   </div>

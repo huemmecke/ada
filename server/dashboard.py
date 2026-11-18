@@ -186,10 +186,11 @@ def _int(v, standard=None):
 
 
 def _projekte(con, nur_aktiv=False):
-    sql = "SELECT id, name, status FROM projekte"
-    if nur_aktiv:
-        sql += " WHERE status != 'fertig'"
-    return db.zeilen(con.execute(sql + " ORDER BY name"))
+    """Projekte für Auswahllisten, als Baum sortiert; `label` ist bei Unterprojekten eingerückt."""
+    liste = db.projekte_baum(con, "WHERE status != 'fertig'" if nur_aktiv else "")
+    for p in liste:
+        p["label"] = "\u00a0\u00a0\u00a0" * p["ebene"] + ("↳ " if p["ebene"] else "") + p["name"]
+    return liste
 
 
 def _faellig(s: str) -> str | None:
@@ -312,13 +313,24 @@ def baue_routen(termine_fn, mails_fn) -> list:
     @geschuetzt
     async def projekte(request: Request):
         with db.verbindung() as con:
-            liste = db.zeilen(con.execute(
-                """SELECT p.*,
+            zahlen = {r["id"]: dict(r) for r in con.execute(
+                """SELECT p.id,
                      (SELECT COUNT(*) FROM aufgaben a WHERE a.projekt_id = p.id AND a.status != 'erledigt') AS offen,
                      (SELECT COUNT(*) FROM eingang e WHERE e.projekt_id = p.id AND e.status = 'neu') AS ideen,
                      (SELECT COUNT(*) FROM entwuerfe x WHERE x.projekt_id = p.id AND x.status = 'entwurf') AS entwuerfe
-                   FROM projekte p
-                   ORDER BY CASE p.status WHEN 'aktiv' THEN 0 WHEN 'ruht' THEN 1 ELSE 2 END, p.name"""))
+                   FROM projekte p""")}
+            baum = db.projekte_baum(con)
+        # Hauptprojekte nach Status gruppieren (aktiv, ruht, fertig); Unterprojekte bleiben unter ihrem Oberprojekt
+        rang = {"aktiv": 0, "ruht": 1, "fertig": 2}
+        gruppen: list[list[dict]] = []
+        for p in baum:
+            p.update(zahlen.get(p["id"], {}))
+            if p["ebene"] == 0:
+                gruppen.append([p])
+            else:
+                gruppen[-1].append(p)
+        gruppen.sort(key=lambda g: rang.get(g[0]["status"], 3))
+        liste = [p for g in gruppen for p in g]
         return seite(request, "projekte.html", aktiv="projekte", projekte=liste)
 
     @geschuetzt
@@ -331,9 +343,13 @@ def baue_routen(termine_fn, mails_fn) -> list:
             vorhanden = con.execute("SELECT id FROM projekte WHERE lower(name) = lower(?)", (name,)).fetchone()
             if vorhanden:
                 return RedirectResponse(f"/projekte/{vorhanden['id']}", status_code=303)
-            cur = con.execute("INSERT INTO projekte (name, beschreibung, erstellt) VALUES (?,?,?)",
-                              (name, str(form.get("beschreibung", "")).strip(), db.jetzt()))
-            db.protokollieren(con, "martin", "projekt_angelegt", {"id": cur.lastrowid, "projekt_id": cur.lastrowid, "name": name})
+            oid = _int(form.get("parent_id"))
+            if oid and not con.execute("SELECT 1 FROM projekte WHERE id = ?", (oid,)).fetchone():
+                oid = None
+            cur = con.execute("INSERT INTO projekte (name, beschreibung, parent_id, erstellt) VALUES (?,?,?,?)",
+                              (name, str(form.get("beschreibung", "")).strip(), oid, db.jetzt()))
+            db.protokollieren(con, "martin", "projekt_angelegt",
+                              {"id": cur.lastrowid, "projekt_id": cur.lastrowid, "name": name, "parent_id": oid})
         return RedirectResponse(f"/projekte/{cur.lastrowid}", status_code=303)
 
     @geschuetzt
@@ -353,8 +369,19 @@ def baue_routen(termine_fn, mails_fn) -> list:
             verlauf = db.zeilen(con.execute(
                 "SELECT * FROM protokoll WHERE json_valid(details) AND json_extract(details, '$.projekt_id') = ? "
                 "ORDER BY zeit DESC LIMIT 50", (pid,)))
+            ober = con.execute("SELECT id, name FROM projekte WHERE id = ?", (p["parent_id"],)).fetchone() \
+                if p["parent_id"] else None
+            unter = db.zeilen(con.execute(
+                """SELECT p.id, p.name, p.status,
+                     (SELECT COUNT(*) FROM aufgaben a WHERE a.projekt_id = p.id AND a.status != 'erledigt') AS offen,
+                     (SELECT COUNT(*) FROM eingang e WHERE e.projekt_id = p.id AND e.status = 'neu') AS ideen
+                   FROM projekte p WHERE p.parent_id = ? ORDER BY p.name""", (pid,)))
+            # mögliche Oberprojekte: alle außer dem Projekt selbst und seinen Unterprojekten
+            gesperrt = {pid, *db.unterprojekt_ids(con, pid)}
+            moegliche_ober = [x for x in _projekte(con) if x["id"] not in gesperrt]
         return seite(request, "projekt.html", aktiv="projekte", p=dict(p), aufgaben=aufgaben, ideen=ideen,
                      entwuerfe=entwuerfe, verlauf=verlauf, projekt_status=db.PROJEKT_STATUS,
+                     ober=dict(ober) if ober else None, unter=unter, moegliche_ober=moegliche_ober,
                      zustaendige=ZUSTAENDIG_VORSCHLAEGE)
 
     @geschuetzt
@@ -369,15 +396,19 @@ def baue_routen(termine_fn, mails_fn) -> list:
                 return RedirectResponse("/projekte", status_code=303)
             name = str(form.get("name", "")).strip()
             status = form.get("status")
+            oid = _int(form.get("parent_id"))
+            if oid and (oid == pid or oid in db.unterprojekt_ids(con, pid)
+                        or not con.execute("SELECT 1 FROM projekte WHERE id = ?", (oid,)).fetchone()):
+                oid = None  # kein Kreis, kein unbekanntes Projekt
             if name and status in db.PROJEKT_STATUS:
                 try:
-                    con.execute("UPDATE projekte SET name = ?, beschreibung = ?, status = ? WHERE id = ?",
-                                (name, str(form.get("beschreibung", "")).strip(), status, pid))
+                    con.execute("UPDATE projekte SET name = ?, beschreibung = ?, status = ?, parent_id = ? WHERE id = ?",
+                                (name, str(form.get("beschreibung", "")).strip(), status, oid, pid))
                 except Exception:
                     pass  # Name doppelt: einfach nichts ändern
                 else:
                     db.protokollieren(con, "martin", "projekt_geaendert",
-                                      {"id": pid, "projekt_id": pid, "name": name, "status": status})
+                                      {"id": pid, "projekt_id": pid, "name": name, "status": status, "parent_id": oid})
         return RedirectResponse(f"/projekte/{pid}", status_code=303)
 
     # ------------------------------------------------------------ Aufgaben
@@ -388,8 +419,10 @@ def baue_routen(termine_fn, mails_fn) -> list:
             sql = AUFGABE_SQL + " WHERE (a.status != 'erledigt' OR a.aktualisiert >= ?)"
             args: list = [(datetime.now(db.TZ) - timedelta(days=14)).strftime("%Y-%m-%d 00:00:00")]
             if projekt_filter:
-                sql += " AND a.projekt_id = ?"
-                args.append(projekt_filter)
+                # Oberprojekt zeigt auch die Aufgaben seiner Unterprojekte
+                ids = [projekt_filter, *db.unterprojekt_ids(con, projekt_filter)]
+                sql += f" AND a.projekt_id IN ({','.join('?' * len(ids))})"
+                args.extend(ids)
             alle = db.zeilen(con.execute(
                 sql + " ORDER BY a.prioritaet, a.faellig IS NULL, a.faellig, a.aktualisiert DESC", args))
             projekte_liste = _projekte(con)

@@ -7,7 +7,7 @@
   <form method="get" action="/aufgaben" class="filter">
     <select name="projekt" aria-label="Projekt filtern" data-auto-absenden>
       <option value="">Alle Projekte</option>
-      {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == projekt_filter %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+      {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == projekt_filter %} selected{% endif %}>{{ p.label }}</option>{% endfor %}
     </select>
     <noscript><button type="submit">Filtern</button></noscript>
   </form>
@@ -22,7 +22,7 @@
     <div class="zeile">
       <select name="projekt_id" aria-label="Projekt">
         <option value="">ohne Projekt</option>
-        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == projekt_filter %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+        {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == projekt_filter %} selected{% endif %}>{{ p.label }}</option>{% endfor %}
       </select>
       <input type="text" name="zustaendig" list="zustaendige" value="martin" aria-label="Zuständig">
       <select name="prioritaet" aria-label="Priorität"><option value="1">hoch</option><option value="2" selected>normal</option><option value="3">niedrig</option></select>
