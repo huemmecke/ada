@@ -16,7 +16,7 @@ Fehlen sie, antwortet das Dashboard mit „nicht eingerichtet“. Der MCP-Server
 |---|---|
 | Heute | Termine heute/morgen, ungelesene Mails, wichtigste Aufgaben, Zähler, letztes Briefing, gestern Erledigtes |
 | Eingang | Ideen notieren, einem Projekt zuordnen, als Aufgabe anlegen, verwerfen; Verworfenes zurückholen oder löschen |
-| Projekte | Liste mit Zählern; Detailseite mit Aufgaben, Ideen, Entwürfen, Verlauf; bearbeiten, löschen |
+| Projekte | Liste mit Zählern, Unterprojekte eingerückt unter ihrem Oberprojekt; Detailseite mit Unterprojekten, Aufgaben, Ideen, Entwürfen, Verlauf; bearbeiten (auch „Gehört zu“), löschen |
 | Aufgaben | Kanban (offen / in Arbeit / delegiert / wartet / erledigt), Drag & Drop am Rechner, Status-Auswahl und Haken auf jeder Karte (auch am iPhone), Detailseite zum Bearbeiten und Löschen |
 | Freigaben | Entwürfe bearbeiten, freigeben, ablehnen. Freigeben veröffentlicht noch nichts (das kommt in Phase 5). |
 | Protokoll | Wer hat wann was gemacht, filterbar nach Ada / Martin / Worker / System |
@@ -34,8 +34,9 @@ Neu: SQLite unter `/data/ada.db` (Volume `ada-data`, bleibt bei Redeploys erhalt
 | `idee_notieren` | Rohe Idee in den Eingang, optional mit Projekt |
 | `eingang_anzeigen` | Ideen nach Status (neu / sortiert / verworfen / alle) |
 | `idee_einsortieren` | Idee einem Projekt zuordnen, optional gleich als Aufgabe anlegen oder verwerfen |
-| `projekte_anzeigen` | Projekte mit Zahl der offenen Aufgaben und neuen Ideen |
-| `projekt_anlegen` | Neues Projekt |
+| `projekte_anzeigen` | Projekte als Baum (Ober- und Unterprojekte) mit Zahl der offenen Aufgaben und neuen Ideen |
+| `projekt_aendern` | Projekt umbenennen, Beschreibung/Status ändern, unter ein Oberprojekt hängen (`oberprojekt="-"` löst es wieder) |
+| `projekt_anlegen` | Neues Projekt, optional mit `oberprojekt` |
 | `projekt_status` | Ein Projekt: offene Aufgaben, Ideen, Entwürfe, letzte Aktivitäten |
 | `aufgabe_anlegen` | Aufgabe mit Projekt, Zuständigkeit, Priorität 1–3, Fälligkeit |
 | `aufgaben_anzeigen` | Aufgaben filtern nach Status, Projekt, Zuständig, Priorität, Fälligkeit |

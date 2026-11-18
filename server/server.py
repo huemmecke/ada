@@ -554,43 +554,101 @@ def idee_einsortieren(id: int, projekt: str = "", als_aufgabe: bool = False, auf
 @_safe
 def projekte_anzeigen(status: str = "") -> list[dict] | dict:
     """Listet Martins Projekte mit Zahl der offenen Aufgaben und unsortierten Ideen.
+    Projekte können Unterprojekte haben: Die Liste ist als Baum sortiert, `ebene` 0 ist ein
+    Hauptprojekt, `oberprojekt` nennt das übergeordnete Projekt.
     Optional nach `status` filtern: aktiv, ruht, fertig."""
-    sql = """SELECT p.id, p.name, p.beschreibung, p.status,
-               (SELECT COUNT(*) FROM aufgaben a WHERE a.projekt_id = p.id AND a.status != 'erledigt') AS offene_aufgaben,
-               (SELECT COUNT(*) FROM eingang e WHERE e.projekt_id = p.id AND e.status = 'neu') AS neue_ideen
-             FROM projekte p"""
-    args: list = []
+    where, args = "", ()
     if status:
         _pruefe(status, db.PROJEKT_STATUS, "status")
-        sql += " WHERE p.status = ?"
-        args.append(status)
+        where, args = "WHERE status = ?", (status,)
     with db.verbindung() as con:
-        return db.zeilen(con.execute(sql + " ORDER BY p.status, p.name", args))
+        out = []
+        for p in db.projekte_baum(con, where, args):
+            out.append({
+                "id": p["id"], "name": p["name"], "oberprojekt": p["oberprojekt"], "ebene": p["ebene"],
+                "beschreibung": p["beschreibung"], "status": p["status"],
+                "offene_aufgaben": con.execute(
+                    "SELECT COUNT(*) FROM aufgaben WHERE projekt_id = ? AND status != 'erledigt'", (p["id"],)).fetchone()[0],
+                "neue_ideen": con.execute(
+                    "SELECT COUNT(*) FROM eingang WHERE projekt_id = ? AND status = 'neu'", (p["id"],)).fetchone()[0],
+            })
+        return out
+
+
+def _oberprojekt_id(con, oberprojekt, pid: int | None = None) -> int | None:
+    """Oberprojekt auflösen und prüfen, dass kein Kreis entsteht."""
+    oid = _projekt_id(con, oberprojekt)
+    if pid is not None and oid is not None and (oid == pid or oid in db.unterprojekt_ids(con, pid)):
+        raise ValueError("Ein Projekt kann nicht unter sich selbst oder eines seiner Unterprojekte gehängt werden.")
+    return oid
 
 
 @mcp.tool()
 @_safe
-def projekt_anlegen(name: str, beschreibung: str = "") -> dict:
-    """Legt ein neues Projekt an. Vorher mit `projekte_anzeigen` prüfen, ob es schon existiert."""
+def projekt_anlegen(name: str, beschreibung: str = "", oberprojekt: str = "") -> dict:
+    """Legt ein neues Projekt an. Vorher mit `projekte_anzeigen` prüfen, ob es schon existiert.
+    Mit `oberprojekt` (Name oder ID) wird es als Unterprojekt angelegt."""
     with db.verbindung() as con:
         if con.execute("SELECT 1 FROM projekte WHERE lower(name) = lower(?)", (name.strip(),)).fetchone():
             return {"fehler": f"Projekt {name!r} gibt es schon."}
-        cur = con.execute("INSERT INTO projekte (name, beschreibung, erstellt) VALUES (?,?,?)",
-                          (name.strip(), beschreibung.strip(), db.jetzt()))
-        db.protokollieren(con, "ada", "projekt_angelegt", {"id": cur.lastrowid, "name": name})
-        return {"ok": True, "id": cur.lastrowid, "name": name}
+        oid = _oberprojekt_id(con, oberprojekt)
+        cur = con.execute("INSERT INTO projekte (name, beschreibung, parent_id, erstellt) VALUES (?,?,?,?)",
+                          (name.strip(), beschreibung.strip(), oid, db.jetzt()))
+        db.protokollieren(con, "ada", "projekt_angelegt",
+                          {"id": cur.lastrowid, "projekt_id": cur.lastrowid, "name": name, "parent_id": oid})
+        return {"ok": True, "id": cur.lastrowid, "name": name, "parent_id": oid}
+
+
+@mcp.tool()
+@_safe
+def projekt_aendern(projekt: str, name: str = "", beschreibung: str | None = None, status: str = "",
+                    oberprojekt: str = "") -> dict:
+    """Ändert ein Projekt (Name oder ID): umbenennen (`name`), `beschreibung` ersetzen,
+    `status` (aktiv, ruht, fertig) setzen oder es verschieben. `oberprojekt` (Name oder ID)
+    hängt es als Unterprojekt darunter; `oberprojekt="-"` macht es wieder zum Hauptprojekt.
+    Nur angegebene Felder werden geändert. Aufgaben, Ideen und Entwürfe bleiben am Projekt."""
+    with db.verbindung() as con:
+        pid = _projekt_id(con, projekt)
+        if pid is None:
+            return {"fehler": "Bitte ein Projekt angeben."}
+        alt = dict(con.execute("SELECT * FROM projekte WHERE id = ?", (pid,)).fetchone())
+        neu: dict = {}
+        if name.strip() and name.strip() != alt["name"]:
+            if con.execute("SELECT 1 FROM projekte WHERE lower(name) = lower(?) AND id != ?",
+                           (name.strip(), pid)).fetchone():
+                return {"fehler": f"Projekt {name!r} gibt es schon."}
+            neu["name"] = name.strip()
+        if beschreibung is not None:
+            neu["beschreibung"] = beschreibung.strip()
+        if status:
+            _pruefe(status, db.PROJEKT_STATUS, "status")
+            neu["status"] = status
+        if oberprojekt.strip():
+            neu["parent_id"] = None if oberprojekt.strip() in ("-", "keins", "keines") else _oberprojekt_id(con, oberprojekt, pid)
+        if not neu:
+            return {"fehler": "Nichts zu ändern angegeben."}
+        con.execute(f"UPDATE projekte SET {', '.join(f'{k} = ?' for k in neu)} WHERE id = ?", (*neu.values(), pid))
+        db.protokollieren(con, "ada", "projekt_geaendert",
+                          {"id": pid, "projekt_id": pid, "vorher": {k: alt[k] for k in neu}, **neu})
+        return {"ok": True, "id": pid, **neu}
 
 
 @mcp.tool()
 @_safe
 def projekt_status(projekt: str) -> dict:
-    """Überblick zu einem Projekt (Name oder ID): offene Aufgaben, neue Ideen,
-    Entwürfe und die letzten Aktivitäten aus dem Protokoll."""
+    """Überblick zu einem Projekt (Name oder ID): Oberprojekt, Unterprojekte, offene Aufgaben,
+    neue Ideen, Entwürfe und die letzten Aktivitäten aus dem Protokoll."""
     with db.verbindung() as con:
         pid = _projekt_id(con, projekt)
         if pid is None:
             return {"fehler": "Bitte ein Projekt angeben."}
         p = dict(con.execute("SELECT * FROM projekte WHERE id = ?", (pid,)).fetchone())
+        if p["parent_id"]:
+            p["oberprojekt"] = con.execute("SELECT name FROM projekte WHERE id = ?", (p["parent_id"],)).fetchone()["name"]
+        p["unterprojekte"] = db.zeilen(con.execute(
+            "SELECT p.id, p.name, p.status,"
+            " (SELECT COUNT(*) FROM aufgaben a WHERE a.projekt_id = p.id AND a.status != 'erledigt') AS offene_aufgaben"
+            " FROM projekte p WHERE p.parent_id = ? ORDER BY p.name", (pid,)))
         p["offene_aufgaben"] = db.zeilen(con.execute(
             AUFGABE_SQL + " WHERE a.projekt_id = ? AND a.status != 'erledigt' ORDER BY a.prioritaet, a.faellig IS NULL, a.faellig",
             (pid,)))

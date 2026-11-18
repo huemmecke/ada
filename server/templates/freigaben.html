@@ -14,7 +14,7 @@
         <select name="kanal" aria-label="Kanal">{% for k in kanaele %}<option value="{{ k }}"{% if x.kanal == k %} selected{% endif %}>{{ k }}</option>{% endfor %}</select>
         <select name="projekt_id" aria-label="Projekt">
           <option value="">ohne Projekt</option>
-          {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == x.projekt_id %} selected{% endif %}>{{ p.name }}</option>{% endfor %}
+          {% for p in projekte %}<option value="{{ p.id }}"{% if p.id == x.projekt_id %} selected{% endif %}>{{ p.label }}</option>{% endfor %}
         </select>
         <span class="grau klein">{{ x.erstellt[:16] }}</span>
       </div>

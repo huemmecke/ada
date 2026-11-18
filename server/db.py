@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS projekte (
     name TEXT NOT NULL UNIQUE,
     beschreibung TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'aktiv' CHECK (status IN {PROJEKT_STATUS}),
-    erstellt TEXT NOT NULL
+    erstellt TEXT NOT NULL,
+    parent_id INTEGER REFERENCES projekte(id) ON DELETE SET NULL
 );
 CREATE TABLE IF NOT EXISTS eingang (
     id INTEGER PRIMARY KEY,
@@ -128,11 +129,56 @@ def init() -> None:
         os.makedirs(d, exist_ok=True)
     with verbindung() as con:
         con.executescript(SCHEMA)
+        _migrieren(con)
         if con.execute("SELECT COUNT(*) FROM projekte").fetchone()[0] == 0:
             t = jetzt()
             con.executemany("INSERT INTO projekte (name, erstellt) VALUES (?, ?)",
                             [(n, t) for n in START_PROJEKTE])
             protokollieren(con, "system", "startdaten", f"{len(START_PROJEKTE)} Projekte angelegt")
+
+
+def _migrieren(con: sqlite3.Connection) -> None:
+    """Ergänzt Spalten, die ältere Datenbanken noch nicht haben."""
+    spalten = {r["name"] for r in con.execute("PRAGMA table_info(projekte)")}
+    if "parent_id" not in spalten:
+        con.execute("ALTER TABLE projekte ADD COLUMN parent_id INTEGER REFERENCES projekte(id) ON DELETE SET NULL")
+        protokollieren(con, "system", "migration", "Projekte können jetzt Unterprojekte haben (parent_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS ix_projekte_parent ON projekte(parent_id)")
+
+
+def projekte_baum(con: sqlite3.Connection, where: str = "", args: tuple = ()) -> list[dict]:
+    """Alle Projekte als flache Liste in Baum-Reihenfolge: Oberprojekt, darunter seine
+    Unterprojekte (alphabetisch). Jede Zeile bekommt `ebene` (0 = oben) und `pfad`
+    („Energieweiser › LoD2-Aufmaß“). Unterprojekte, deren Oberprojekt herausgefiltert
+    ist, erscheinen auf oberster Ebene."""
+    rows = [dict(r) for r in con.execute(f"SELECT * FROM projekte {where}", args)]
+    namen = {r["id"]: r["name"] for r in con.execute("SELECT id, name FROM projekte")}
+    ids = {r["id"] for r in rows}
+    kinder: dict = {}
+    for r in rows:
+        kinder.setdefault(r["parent_id"] if r["parent_id"] in ids else None, []).append(r)
+    out: list[dict] = []
+
+    def gehe(pid, ebene, besucht):
+        for r in sorted(kinder.get(pid, []), key=lambda x: x["name"].lower()):
+            if r["id"] in besucht:
+                continue
+            r["ebene"] = ebene
+            r["oberprojekt"] = namen.get(r["parent_id"]) if r["parent_id"] else None
+            r["pfad"] = f"{r['oberprojekt']} › {r['name']}" if r["oberprojekt"] else r["name"]
+            out.append(r)
+            gehe(r["id"], ebene + 1, besucht | {r["id"]})
+
+    gehe(None, 0, frozenset())
+    return out
+
+
+def unterprojekt_ids(con: sqlite3.Connection, pid: int) -> list[int]:
+    """IDs aller Unterprojekte (auch tiefer verschachtelt), ohne `pid` selbst."""
+    return [r[0] for r in con.execute(
+        """WITH RECURSIVE u(id) AS (SELECT id FROM projekte WHERE parent_id = ?
+             UNION SELECT p.id FROM projekte p JOIN u ON p.parent_id = u.id)
+           SELECT id FROM u""", (pid,))]
 
 
 def zeilen(rows) -> list[dict]:

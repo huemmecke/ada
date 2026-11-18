@@ -1,9 +1,29 @@
 {% extends "base.html" %}
 {% block titel %}{{ p.name }}{% endblock %}
 {% block inhalt %}
-<p class="brotkrume"><a href="/projekte">Projekte</a></p>
+<p class="brotkrume"><a href="/projekte">Projekte</a>{% if ober %} · <a href="/projekte/{{ ober.id }}">{{ ober.name }}</a>{% endif %}</p>
 <h1>{{ p.name }}</h1>
 {% if p.beschreibung %}<p class="untertitel">{{ p.beschreibung }}</p>{% endif %}
+
+{% if unter %}
+<section>
+  <h2>Unterprojekte</h2>
+  <ul class="projektliste">
+  {% for u in unter %}
+    <li class="status-{{ u.status }}">
+      <a href="/projekte/{{ u.id }}">
+        <span class="name">{{ u.name }}</span>
+        <span class="meta">
+          {% if u.status != 'aktiv' %}<span>{{ u.status }}</span>{% endif %}
+          {% if u.offen %}<span>{{ u.offen }} offen</span>{% endif %}
+          {% if u.ideen %}<span>{{ u.ideen }} Ideen</span>{% endif %}
+        </span>
+      </a>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
 
 <section>
   <div class="abschnitt-kopf"><h2>Aufgaben</h2><a href="/aufgaben?projekt={{ p.id }}" class="leise">Als Board</a></div>
@@ -53,10 +73,15 @@
   <form method="post" action="/projekte/{{ p.id }}/aendern" class="formular">
     <input type="text" name="name" value="{{ p.name }}" required aria-label="Name">
     <textarea name="beschreibung" rows="3" placeholder="Beschreibung">{{ p.beschreibung }}</textarea>
+    <label class="klein grau" for="parent_id">Gehört zu</label>
+    <select name="parent_id" id="parent_id">
+      <option value="">kein Oberprojekt (Hauptprojekt)</option>
+      {% for o in moegliche_ober %}<option value="{{ o.id }}"{% if o.id == p.parent_id %} selected{% endif %}>{{ o.label }}</option>{% endfor %}
+    </select>
     <select name="status" aria-label="Status">{% for s in projekt_status %}<option value="{{ s }}"{% if p.status == s %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
     <div class="knoepfe">
       <button type="submit" class="primaer">Speichern</button>
-      <button type="submit" name="aktion" value="loeschen" class="gefahr" formnovalidate data-bestaetigen="Projekt „{{ p.name }}“ löschen? Aufgaben und Ideen bleiben erhalten, nur ohne Projekt.">Projekt löschen</button>
+      <button type="submit" name="aktion" value="loeschen" class="gefahr" formnovalidate data-bestaetigen="Projekt „{{ p.name }}“ löschen? Aufgaben und Ideen bleiben erhalten, nur ohne Projekt. Unterprojekte werden zu Hauptprojekten.">Projekt löschen</button>
     </div>
   </form>
 </details>
